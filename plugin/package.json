@@ -1,0 +1,13 @@
+{
+  "name": "furina-tdl",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node esbuild.config.mjs",
+    "pack": "node ../scripts/pack-plugin.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0",
+    "typescript": "^5.8.0"
+  }
+}
