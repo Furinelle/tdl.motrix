@@ -9,7 +9,7 @@
   "main": "dist/plugin.js",
   "requestedHeapMB": 32,
   "permissions": ["http"],
-  "hostPermissions": ["http://127.0.0.1:16808/*"],
+  "hostPermissions": ["http://127.0.0.1/*", "http://localhost/*"],
   "activationEvents": ["onTaskType:http"],
   "contributes": {
     "hooks": {
