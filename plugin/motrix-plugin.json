@@ -2,14 +2,20 @@
   "manifestVersion": 1,
   "id": "furina.tdl",
   "name": "%name%",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "%description%",
   "categories": ["site-resolver"],
   "engines": { "motrix": ">=2.0.0 <3.0.0" },
   "main": "dist/plugin.js",
   "requestedHeapMB": 32,
   "permissions": ["http"],
-  "hostPermissions": ["http://127.0.0.1/*", "http://localhost/*"],
+  "hostPermissions": [
+    "http://127.0.0.1/*",
+    "http://localhost/*",
+    "https://t.me/*",
+    "https://telegram.me/*",
+    "https://telegram.dog/*"
+  ],
   "activationEvents": ["onTaskType:http"],
   "contributes": {
     "hooks": {

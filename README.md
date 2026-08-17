@@ -22,7 +22,7 @@ chmod +x scripts/install-macos.sh
 
 然后打开 Motrix → 插件 → **添加插件**，选：
 
-`plugin/dist/furina.tdl-0.1.0.moext`
+`plugin/dist/furina.tdl-0.1.1.moext`
 
 授权 `http` 后启用。
 
