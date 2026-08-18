@@ -4,7 +4,7 @@
 
 **Goal:** Paste a Telegram message link in Motrix; tdl-bridge serves it over localhost HTTP; Motrix downloads it as a normal task.
 
-**Architecture:** `tdl-bridge` is a loopback Node HTTP server that execs `tdl dl --serve`. The Motrix plugin `furina.tdl` rewrites matching `t.me` URLs to those HTTP files. Extra album files are added with `motrix add`.
+**Architecture:** `tdl-bridge` is a loopback Node HTTP server that execs `tdl dl --serve`. The Motrix plugin `tdl.motrix` rewrites matching `t.me` URLs to those HTTP files. Extra album files are added with `motrix add`.
 
 **Tech Stack:** Node 22, no extra deps for the bridge. Plugin via official Motrix plugin scaffold (`motrix:plugin-api`, esbuild). launchd on macOS.
 
@@ -12,7 +12,7 @@
 
 - Bridge binds `127.0.0.1:16808` only.
 - Reuse `~/.tdl` namespace `default`. Never collect Telegram credentials.
-- Plugin id `furina.tdl`. Category `site-resolver`. Hook role `resolve`.
+- Plugin id `tdl.motrix`. Category `site-resolver`. Hook role `resolve`.
 - Plugin HTTP only to `http://127.0.0.1:16808/*`.
 - On resolve failure the plugin must not `ctx.update` (do not leave a `t.me` download). Throw with the spec copy.
 - tdl serve index links are `{peerId}/{messageId}`; real name comes from `Content-Disposition`.
@@ -25,7 +25,7 @@
 - `bridge/parseIndex.js` — parse tdl serve HTML into file paths
 - `bridge/tdl.js` — spawn tdl, login probe, serve lifecycle
 - `bridge/server.js` — `GET /status`, `POST /resolve`
-- `bridge/launchd/app.furina.tdl-bridge.plist`
+- `bridge/launchd/app.tdl.motrix.bridge.plist`
 - `scripts/install-macos.sh`
 - `plugin/motrix-plugin.json`, `plugin/src/index.ts`, locales, esbuild, package.json
 - `tests/links.test.mjs`, `tests/parseIndex.test.mjs`
@@ -55,7 +55,7 @@
 
 ### Task 4: Motrix plugin
 
-- [ ] Scaffold `plugin/` as `furina.tdl`
+- [ ] Scaffold `plugin/` as `tdl.motrix`
 - [ ] `beforeCreate`: skip non-telegram; GET status (2s); POST resolve (45s); `ctx.update` first file; throw spec messages otherwise
 - [ ] `pnpm run pack` produces `.moext`
 - [ ] Commit

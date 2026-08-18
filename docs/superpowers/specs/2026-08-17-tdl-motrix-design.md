@@ -30,7 +30,7 @@
 ```
 Motrix 新建任务 / Chrome 丢链接
         ↓
-  插件 furina.tdl 认出消息链接
+  插件 tdl.motrix 认出消息链接
         ↓
   tdl-bridge (127.0.0.1:16808)
         ↓
@@ -49,7 +49,7 @@ Motrix 新建任务 / Chrome 丢链接
 - 会话：默认命名空间 `default`，存储即用户现有 `~/.tdl`。
 - 不把 session、验证码、手机号写入自己的配置或日志。
 
-### Motrix 插件 `furina.tdl`
+### Motrix 插件 `tdl.motrix`
 
 - 类别：`site-resolver`。
 - Hook：`beforeCreate`。
@@ -157,7 +157,7 @@ tdl dl --serve --port <临时端口> -u <url> --group
 | 组件 | 形式 |
 |------|------|
 | `tdl-bridge` | 本机 HTTP 服务 + launchd plist |
-| `furina.tdl` | Motrix 插件（`pnpm create motrix-plugin`） |
+| `tdl.motrix` | Motrix 插件（`pnpm create motrix-plugin`） |
 | 安装说明 | README：装插件、加载 launchd、确认 `tdl login` |
 
 ## 已否决

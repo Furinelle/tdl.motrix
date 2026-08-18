@@ -1,6 +1,6 @@
-# tdl × Motrix
+# tdl.motrix
 
-在 Motrix 里粘贴 Telegram 消息链接，经本机 `tdl-bridge` 用已登录的 tdl `--serve`，再由 Motrix 下载。
+在 Motrix 里粘贴 Telegram 消息链接，经本机桥用已登录的 tdl `--serve`，再由 Motrix 下载。插件 ID 与仓库名均为 `tdl.motrix`。
 
 设计：`docs/superpowers/specs/2026-08-17-tdl-motrix-design.md`
 
@@ -13,8 +13,8 @@
 ## 安装
 
 ```bash
-git clone https://github.com/Furinelle/tdl-motrix.git
-cd tdl-motrix
+git clone https://github.com/Furinelle/tdl.motrix.git
+cd tdl.motrix
 pnpm --dir plugin install
 pnpm --dir plugin run pack
 chmod +x scripts/install-macos.sh
@@ -23,7 +23,7 @@ chmod +x scripts/install-macos.sh
 
 然后打开 Motrix → 插件 → **添加插件**，选：
 
-`plugin/dist/furina.tdl-0.1.3.moext`
+`plugin/dist/tdl.motrix-0.1.4.moext`
 
 （也可从 GitHub Releases 下载已打包的 `.moext`。）
 
@@ -50,6 +50,6 @@ node scripts/tdl-add.mjs 'https://t.me/channel/123'
 ## 卸载桥
 
 ```bash
-launchctl bootout "gui/$(id -u)/app.furina.tdl-bridge"
-rm -f ~/Library/LaunchAgents/app.furina.tdl-bridge.plist
+launchctl bootout "gui/$(id -u)/app.tdl.motrix.bridge"
+rm -f ~/Library/LaunchAgents/app.tdl.motrix.bridge.plist
 ```

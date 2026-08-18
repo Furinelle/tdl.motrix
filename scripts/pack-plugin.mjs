@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url'
 const pluginDir = join(dirname(fileURLToPath(import.meta.url)), '..', 'plugin')
 const dist = join(pluginDir, 'dist')
 const staging = join(dist, 'pack')
-const out = join(dist, 'furina.tdl-0.1.3.moext')
+const out = join(dist, 'tdl.motrix-0.1.4.moext')
 
 const build = spawnSync('node', ['esbuild.config.mjs'], {
   cwd: pluginDir,

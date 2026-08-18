@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
   <key>Label</key>
-  <string>app.furina.tdl-bridge</string>
+  <string>app.tdl.motrix.bridge</string>
   <key>ProgramArguments</key>
   <array>
     <string>/opt/homebrew/opt/node@22/bin/node</string>

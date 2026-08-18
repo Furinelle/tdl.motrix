@@ -1,8 +1,8 @@
 {
   "manifestVersion": 1,
-  "id": "furina.tdl",
+  "id": "tdl.motrix",
   "name": "%name%",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "%description%",
   "categories": ["site-resolver"],
   "engines": { "motrix": ">=2.0.0 <3.0.0" },
