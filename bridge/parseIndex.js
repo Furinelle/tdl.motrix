@@ -38,5 +38,13 @@ export function filenameFromContentDisposition(header) {
   }
   const plain = header.match(/filename="([^"]+)"/i) || header.match(/filename=([^;]+)/i)
   if (!plain) return null
-  return plain[1].trim()
+  return decodeUtf8Mojibake(plain[1].trim())
+}
+
+/** tdl writes raw UTF-8 into filename=""; HTTP parsers read headers as latin1. */
+function decodeUtf8Mojibake(name) {
+  if (!/[\u0080-\u00FF]/.test(name) || /[\u4e00-\u9fff]/.test(name)) return name
+  const fixed = Buffer.from(name, 'latin1').toString('utf8')
+  if (!fixed || fixed.includes('\uFFFD')) return name
+  return fixed
 }

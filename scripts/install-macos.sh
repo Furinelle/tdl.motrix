@@ -14,4 +14,4 @@ sleep 0.4
 curl -sf "http://127.0.0.1:16808/status"
 echo
 echo "tdl-bridge installed and running"
-echo "Install the plugin in Motrix: 插件 → 添加插件 → $ROOT/plugin/dist/furina.tdl-0.1.0.moext"
+echo "Install the plugin in Motrix: 插件 → 添加插件 → $ROOT/plugin/dist/furina.tdl-0.1.3.moext"

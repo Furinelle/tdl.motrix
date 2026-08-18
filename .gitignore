@@ -1,5 +1,6 @@
 node_modules/
 plugin/node_modules/
-plugin/dist/
+plugin/dist/*
+!plugin/dist/*.moext
 *.log
 .DS_Store

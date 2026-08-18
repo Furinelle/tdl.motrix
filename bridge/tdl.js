@@ -1,8 +1,10 @@
-import { spawn } from 'node:child_process'
-import { existsSync } from 'node:fs'
-import { homedir } from 'node:os'
+import { spawn, spawnSync } from 'node:child_process'
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { groupedUrlsFromExport, parseMessageRef } from './group.js'
 import { filenameFromContentDisposition, parseServeIndex } from './parseIndex.js'
+import { tdlSaveDir } from './paths.js'
 
 export const BRIDGE_PORT = 16808
 export const SERVE_TTL_MS = 6 * 60 * 60 * 1000
@@ -113,6 +115,7 @@ export class TdlRunner {
       tdl: installed,
       loggedIn: installed && sessionLooksPresent(),
       port: BRIDGE_PORT,
+      saveDir: tdlSaveDir(),
     }
   }
 
@@ -154,11 +157,57 @@ export class TdlRunner {
     }
   }
 
+  /** @param {string} url */
+  #expandGroup(url) {
+    const ref = parseMessageRef(url)
+    if (!ref) return [url]
+    const from = Math.max(1, ref.messageId - 10)
+    const to = ref.messageId + 10
+    const dir = mkdtempSync(join(tmpdir(), 'tdl-group-'))
+    const out = join(dir, 'export.json')
+    const result = spawnSync(
+      this.tdlBin,
+      [
+        'chat',
+        'export',
+        '-c',
+        ref.chatFlag,
+        '-T',
+        'id',
+        '-i',
+        `${from},${to}`,
+        '--raw',
+        '-o',
+        out,
+      ],
+      { encoding: 'utf8', timeout: 30_000, env: { ...process.env } }
+    )
+    try {
+      if (result.status !== 0 || !existsSync(out)) {
+        console.log(
+          JSON.stringify({
+            msg: 'group_export_skip',
+            status: result.status,
+            err: String(result.stderr || result.stdout || '').slice(0, 300),
+          })
+        )
+        return [url]
+      }
+      const urls = groupedUrlsFromExport(readFileSync(out, 'utf8'), ref)
+      if (!urls.length) return [url]
+      console.log(JSON.stringify({ msg: 'group_expanded', count: urls.length }))
+      return urls
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  }
+
   /** @param {string} url @param {boolean} group */
   async #startServe(url, group) {
+    const urls = group ? this.#expandGroup(url) : [url]
     const port = allocatePort()
-    const args = ['dl', '--serve', '--port', String(port), '-u', url, '--continue']
-    if (group) args.push('--group')
+    const args = ['dl', '--serve', '--port', String(port), '--continue']
+    for (const item of urls) args.push('-u', item)
 
     const stderrChunks = []
     const proc = spawn(this.tdlBin, args, {
@@ -237,11 +286,12 @@ export class TdlRunner {
     if (!saveDir || files.length < 2) return
     for (const file of files.slice(1)) {
       try {
-        spawn(
-          this.motrixBin,
-          ['add', file.url, '--save-dir', saveDir],
-          { stdio: 'ignore', detached: true }
-        ).unref()
+        const args = ['add', file.url, '--save-dir', saveDir]
+        if (file.filename) args.push('--filename', file.filename)
+        spawn(this.motrixBin, args, {
+          stdio: 'ignore',
+          detached: true,
+        }).unref()
       } catch {
         /* motrix CLI optional */
       }

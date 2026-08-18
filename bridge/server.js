@@ -1,6 +1,7 @@
 import http from 'node:http'
 import { BRIDGE_PORT, TdlRunner } from './tdl.js'
 import { parseTelegramMessageUrl } from './links.js'
+import { startAria2Watch } from './watch.js'
 
 const runner = new TdlRunner()
 
@@ -90,4 +91,5 @@ server.listen(BRIDGE_PORT, '127.0.0.1', () => {
   console.log(
     JSON.stringify({ msg: 'listen', host: '127.0.0.1', port: BRIDGE_PORT })
   )
+  startAria2Watch(runner)
 })

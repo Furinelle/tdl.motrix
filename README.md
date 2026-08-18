@@ -13,7 +13,8 @@
 ## 安装
 
 ```bash
-cd ~/Documents/Github/tdl-motrix
+git clone https://github.com/Furinelle/tdl-motrix.git
+cd tdl-motrix
 pnpm --dir plugin install
 pnpm --dir plugin run pack
 chmod +x scripts/install-macos.sh
@@ -22,7 +23,9 @@ chmod +x scripts/install-macos.sh
 
 然后打开 Motrix → 插件 → **添加插件**，选：
 
-`plugin/dist/furina.tdl-0.1.1.moext`
+`plugin/dist/furina.tdl-0.1.3.moext`
+
+（也可从 GitHub Releases 下载已打包的 `.moext`。）
 
 授权 `http` 后启用。
 
@@ -36,7 +39,13 @@ curl -s http://127.0.0.1:16808/status
 
 ## 使用
 
-Motrix 新建任务或 Chrome「使用 Motrix 下载」，贴官方客户端复制的消息链接，例如 `https://t.me/channel/123`。
+在 **Motrix 窗口**里新建任务（或 Chrome「使用 Motrix 下载」），贴官方客户端复制的消息链接，例如 `https://t.me/channel/123`。
+
+`motrix add https://t.me/...` 走 CLI 桥，**不会**跑插件。命令行请用：
+
+```bash
+node scripts/tdl-add.mjs 'https://t.me/channel/123'
+```
 
 ## 卸载桥
 

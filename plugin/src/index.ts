@@ -31,10 +31,7 @@ hooks.beforeCreate(async (ctx) => {
   const telegramUrl = firstTelegramUri(ctx.uris)
   if (!telegramUrl) return ctx
 
-  if (!http.available) {
-    throw new Error('tdl-bridge 未运行，请先启动本机服务')
-  }
-
+  let saveDir = ctx.saveDir
   try {
     const status = await http.request({
       method: 'GET',
@@ -45,13 +42,14 @@ hooks.beforeCreate(async (ctx) => {
     if (status.status >= 400) {
       throw new Error('tdl-bridge 未运行，请先启动本机服务')
     }
-    const body = status.body as { tdl?: boolean; loggedIn?: boolean }
+    const body = status.body as { tdl?: boolean; loggedIn?: boolean; saveDir?: string }
     if (body.tdl === false) {
       throw new Error('未找到 tdl，请先 brew install tdl')
     }
     if (body.loggedIn === false) {
       throw new Error('tdl 未登录，请在终端执行 tdl login 后重试')
     }
+    if (body.saveDir) saveDir = body.saveDir
   } catch (e) {
     if (e instanceof Error && /tdl|bridge|未找到|未登录/.test(e.message)) throw e
     throw new Error('tdl-bridge 未运行，请先启动本机服务')
@@ -66,7 +64,7 @@ hooks.beforeCreate(async (ctx) => {
       type: 'json',
       data: {
         url: telegramUrl,
-        saveDir: ctx.saveDir,
+        saveDir,
         group: true,
       },
     },
@@ -84,9 +82,9 @@ hooks.beforeCreate(async (ctx) => {
 
   const first = payload.files[0]
   log.info('tdl resolved', { files: payload.files.length, filename: first.filename })
-  ctx.update({
+  // filename requires Motrix fs.task.write; only rewrite URI here
+  await ctx.update({
     uris: [first.url],
-    filename: first.filename,
   })
   return ctx
 })

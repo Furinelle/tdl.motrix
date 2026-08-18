@@ -13,7 +13,7 @@ declare module 'motrix:plugin-api' {
         headers: Array<{ name: string; value: string }>
         proxy: string
       }>
-    ): void
+    ): Promise<void>
   }
   export const hooks: {
     beforeCreate(
@@ -25,7 +25,6 @@ declare module 'motrix:plugin-api' {
     error(msg: string, fields?: Record<string, unknown>): void
   }
   export const http: {
-    readonly available: boolean
     request<R extends 'text' | 'json' | 'bytes'>(opts: {
       method: 'GET' | 'POST'
       url: string

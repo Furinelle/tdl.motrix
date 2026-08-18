@@ -30,3 +30,9 @@ test('filenameFromContentDisposition reads quoted and rfc5987 names', () => {
   )
   assert.equal(filenameFromContentDisposition(null), null)
 })
+
+test('filenameFromContentDisposition decodes tdl utf-8 bytes in latin1 headers', () => {
+  const name = '白丝足尖轻点_测试_09.mp4'
+  const header = `attachment; filename="${Buffer.from(name, 'utf8').toString('latin1')}"`
+  assert.equal(filenameFromContentDisposition(header), name)
+})

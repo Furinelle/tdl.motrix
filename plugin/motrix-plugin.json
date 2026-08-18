@@ -2,7 +2,7 @@
   "manifestVersion": 1,
   "id": "furina.tdl",
   "name": "%name%",
-  "version": "0.1.1",
+  "version": "0.1.3",
   "description": "%description%",
   "categories": ["site-resolver"],
   "engines": { "motrix": ">=2.0.0 <3.0.0" },
@@ -11,10 +11,21 @@
   "permissions": ["http"],
   "hostPermissions": [
     "http://127.0.0.1/*",
+    "http://127.0.0.1/*/*",
     "http://localhost/*",
+    "http://localhost/*/*",
     "https://t.me/*",
+    "https://t.me/*/*",
+    "https://t.me/*/*/*",
+    "https://t.me/*/*/*/*",
     "https://telegram.me/*",
-    "https://telegram.dog/*"
+    "https://telegram.me/*/*",
+    "https://telegram.me/*/*/*",
+    "https://telegram.me/*/*/*/*",
+    "https://telegram.dog/*",
+    "https://telegram.dog/*/*",
+    "https://telegram.dog/*/*/*",
+    "https://telegram.dog/*/*/*/*"
   ],
   "activationEvents": ["onTaskType:http"],
   "contributes": {

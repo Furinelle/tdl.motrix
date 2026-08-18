@@ -26,9 +26,7 @@ function firstTelegramUri(uris) {
 hooks.beforeCreate(async (ctx) => {
   const telegramUrl = firstTelegramUri(ctx.uris);
   if (!telegramUrl) return ctx;
-  if (!http.available) {
-    throw new Error("tdl-bridge \u672A\u8FD0\u884C\uFF0C\u8BF7\u5148\u542F\u52A8\u672C\u673A\u670D\u52A1");
-  }
+  let saveDir = ctx.saveDir;
   try {
     const status = await http.request({
       method: "GET",
@@ -46,6 +44,7 @@ hooks.beforeCreate(async (ctx) => {
     if (body.loggedIn === false) {
       throw new Error("tdl \u672A\u767B\u5F55\uFF0C\u8BF7\u5728\u7EC8\u7AEF\u6267\u884C tdl login \u540E\u91CD\u8BD5");
     }
+    if (body.saveDir) saveDir = body.saveDir;
   } catch (e) {
     if (e instanceof Error && /tdl|bridge|未找到|未登录/.test(e.message)) throw e;
     throw new Error("tdl-bridge \u672A\u8FD0\u884C\uFF0C\u8BF7\u5148\u542F\u52A8\u672C\u673A\u670D\u52A1");
@@ -59,7 +58,7 @@ hooks.beforeCreate(async (ctx) => {
       type: "json",
       data: {
         url: telegramUrl,
-        saveDir: ctx.saveDir,
+        saveDir,
         group: true
       }
     }
@@ -70,9 +69,8 @@ hooks.beforeCreate(async (ctx) => {
   }
   const first = payload.files[0];
   log.info("tdl resolved", { files: payload.files.length, filename: first.filename });
-  ctx.update({
-    uris: [first.url],
-    filename: first.filename
+  await ctx.update({
+    uris: [first.url]
   });
   return ctx;
 });
