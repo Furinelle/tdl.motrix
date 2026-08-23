@@ -25,7 +25,7 @@ chmod +x scripts/install-macos.sh
 
 然后打开 Motrix → 插件 → **添加插件**，选：
 
-`plugin/dist/tdl.motrix-0.1.4.moext`
+`plugin/dist/tdl.motrix-0.1.5.moext`
 
 （也可从 GitHub Releases 下载已打包的 `.moext`。）
 
