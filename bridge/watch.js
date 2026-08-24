@@ -1,7 +1,9 @@
 import { readFileSync, unlinkSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { isAria2Gid } from './aria2.js'
 import { parseTelegramMessageUrl } from './links.js'
+import { removeMotrixTask } from './motrix.js'
 import { tdlSaveDir } from './paths.js'
 
 const SETTINGS = join(homedir(), 'Library/Application Support/Motrix/settings.json')
@@ -16,7 +18,7 @@ export function extractTelegramJobs(statuses, parseUrl) {
   for (const status of statuses || []) {
     const gid = status?.gid
     const dir = status?.dir
-    if (!gid || typeof dir !== 'string') continue
+    if (!isAria2Gid(gid) || typeof dir !== 'string') continue
     for (const file of status.files || []) {
       for (const entry of file.uris || []) {
         const parsed = parseUrl(String(entry?.uri || ''))
@@ -73,13 +75,61 @@ export function isPathInside(dir, path) {
   return rel !== '' && rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel)
 }
 
+function isSafeFilename(value) {
+  return (
+    typeof value === 'string' &&
+    value.length > 0 &&
+    !value.includes('/') &&
+    !value.includes('\\') &&
+    value !== '..' &&
+    !value.startsWith('.')
+  )
+}
+
+function extractServedJobs(statuses, lookupFilename, targetDir) {
+  const jobs = []
+  for (const status of statuses || []) {
+    const gid = status?.gid
+    const dir = status?.dir
+    if (!isAria2Gid(gid) || typeof dir !== 'string' || status?.status === 'removed') continue
+    for (const file of status.files || []) {
+      let matched = false
+      for (const entry of file.uris || []) {
+        const uri = String(entry?.uri || '')
+        const filename = lookupFilename(uri)
+        if (!isSafeFilename(filename)) continue
+        const currentOut = typeof file.path === 'string' ? basename(file.path) : ''
+        if (resolve(dir) === resolve(targetDir) && currentOut === filename) {
+          matched = true
+          break
+        }
+        jobs.push({
+          gid,
+          uri,
+          dir,
+          path: typeof file.path === 'string' ? file.path : undefined,
+          filename,
+        })
+        matched = true
+        break
+      }
+      if (matched) break
+    }
+  }
+  return jobs
+}
+
 /**
- * @param {{ resolve: (req: { url: string, group?: boolean }) => Promise<any> }} runner
+ * @param {{
+ *   resolve: (req: { url: string, group?: boolean }) => Promise<any>,
+ *   lookupServedFilename?: (url: string) => string | null,
+ * }} runner
  * @param {{
  *   intervalMs?: number,
  *   reconnectMs?: number,
  *   loadRpc?: () => { port: number, secret: string } | null,
  *   rpc?: (rpcConf: any, method: string, extra?: any[]) => Promise<any>,
+ *   removeMotrixTask?: (gid: string) => Promise<boolean>,
  *   saveDir?: () => string,
  *   WebSocket?: typeof globalThis.WebSocket,
  * }} [opts]
@@ -89,6 +139,7 @@ export function startAria2Watch(runner, opts = {}) {
   const reconnectMs = opts.reconnectMs ?? 1000
   const loadRpcConf = opts.loadRpc ?? loadRpc
   const rpcCall = opts.rpc ?? rpc
+  const removeTask = opts.removeMotrixTask ?? removeMotrixTask
   const saveDir = opts.saveDir ?? tdlSaveDir
   const WebSocketImpl = opts.WebSocket ?? globalThis.WebSocket
   const keys = ['gid', 'dir', 'files', 'status']
@@ -101,6 +152,7 @@ export function startAria2Watch(runner, opts = {}) {
   let stopped = false
 
   function remember(gid) {
+    if (!isAria2Gid(gid)) return false
     if (seen.has(gid)) return false
     seen.add(gid)
     if (seen.size > SEEN_LIMIT) {
@@ -110,22 +162,48 @@ export function startAria2Watch(runner, opts = {}) {
   }
 
   async function intercept(statuses, rpcConf) {
-    const jobs = extractTelegramJobs(
+    const targetDir = saveDir()
+    const telegramJobs = extractTelegramJobs(
       statuses.filter((status) => status?.status !== 'removed'),
       parseTelegramMessageUrl
     )
+    const servedJobs = typeof runner.lookupServedFilename === 'function'
+      ? extractServedJobs(
+          statuses,
+          (url) => runner.lookupServedFilename(url),
+          targetDir
+        )
+      : []
+    const jobs = [...telegramJobs, ...servedJobs]
+    const retryLater = new Set()
     for (const job of jobs) {
+      if (retryLater.has(job.gid)) continue
       if (!remember(job.gid)) continue
       console.log(JSON.stringify({ msg: 'intercept', gid: job.gid, url: job.uri }))
+      let motrixRemoval
       try {
-        await rpcCall(rpcConf, 'aria2.forceRemove', [job.gid])
+        motrixRemoval = await removeTask(job.gid)
       } catch {
-        /* already gone */
+        retryLater.add(job.gid)
+        seen.delete(job.gid)
+        continue
       }
-      try {
-        await rpcCall(rpcConf, 'aria2.removeDownloadResult', [job.gid])
-      } catch {
-        /* not in result list */
+      if (motrixRemoval !== true && motrixRemoval !== false) {
+        retryLater.add(job.gid)
+        seen.delete(job.gid)
+        continue
+      }
+      if (motrixRemoval === false) {
+        try {
+          await rpcCall(rpcConf, 'aria2.forceRemove', [job.gid])
+        } catch {
+          /* already gone */
+        }
+        try {
+          await rpcCall(rpcConf, 'aria2.removeDownloadResult', [job.gid])
+        } catch {
+          /* not in result list */
+        }
       }
       for (const leftover of [
         job.path,
@@ -137,30 +215,36 @@ export function startAria2Watch(runner, opts = {}) {
           /* optional */
         }
       }
-      const resolved = await runner.resolve({ url: job.uri, group: true })
-      if (!resolved?.ok || !resolved.files?.length) {
-        console.log(
-          JSON.stringify({
-            msg: 'intercept_fail',
-            gid: job.gid,
-            message: resolved?.message,
-          })
-        )
-        continue
+      let files
+      if (job.filename) {
+        files = [{ url: job.uri, filename: job.filename }]
+      } else {
+        const resolved = await runner.resolve({ url: job.uri, group: true })
+        if (!resolved?.ok || !resolved.files?.length) {
+          console.log(
+            JSON.stringify({
+              msg: 'intercept_fail',
+              gid: job.gid,
+              message: resolved?.message,
+            })
+          )
+          continue
+        }
+        files = resolved.files
       }
-      const targetDir = saveDir()
-      for (const file of resolved.files) {
+      for (const file of files) {
         const options = { dir: targetDir }
         if (file.filename && !file.filename.includes('/') && !file.filename.startsWith('.')) {
           options.out = file.filename
         }
-        await rpcCall(rpcConf, 'aria2.addUri', [[file.url], options])
+        const newGid = await rpcCall(rpcConf, 'aria2.addUri', [[file.url], options])
+        if (isAria2Gid(newGid)) remember(newGid)
       }
       console.log(
         JSON.stringify({
           msg: 'intercept_done',
           gid: job.gid,
-          files: resolved.files.length,
+          files: files.length,
         })
       )
     }
@@ -247,7 +331,7 @@ export function startAria2Watch(runner, opts = {}) {
       if (notification?.method !== 'aria2.onDownloadStart') return
       const gid = notification?.params?.[0]?.gid
       if (
-        typeof gid !== 'string' ||
+        !isAria2Gid(gid) ||
         seen.has(gid) ||
         pendingGids.has(gid) ||
         pendingGids.size >= SEEN_LIMIT

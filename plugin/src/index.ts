@@ -78,7 +78,7 @@ hooks.beforeCreate(async (ctx) => {
 
   const first = payload.files[0]
   log.info('tdl resolved', { files: payload.files.length, filename: first.filename })
-  // filename requires Motrix fs.task.write; only rewrite URI here
+  // Motrix beta25 ignores beforeCreate filename; the bridge watcher reapplies it via aria2.
   await ctx.update({
     uris: [first.url],
   })

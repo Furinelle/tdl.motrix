@@ -89,6 +89,17 @@ async function filenameFor(url) {
   return tail ? `${tail}.bin` : 'telegram.bin'
 }
 
+function isSafeFilename(value) {
+  return (
+    typeof value === 'string' &&
+    value.length > 0 &&
+    !value.includes('/') &&
+    !value.includes('\\') &&
+    value !== '..' &&
+    !value.startsWith('.')
+  )
+}
+
 /**
  * @typedef {{ url: string, filename: string }} ServedFile
  * @typedef {{ port: number, proc: import('node:child_process').ChildProcess, files: ServedFile[], startedAt: number, timer: NodeJS.Timeout }} ServeSlot
@@ -117,6 +128,17 @@ export class TdlRunner {
       port: BRIDGE_PORT,
       saveDir: tdlSaveDir(),
     }
+  }
+
+  /** @param {string} url */
+  lookupServedFilename(url) {
+    if (typeof url !== 'string') return null
+    for (const slot of this.serves.values()) {
+      for (const file of slot.files || []) {
+        if (file.url === url && isSafeFilename(file.filename)) return file.filename
+      }
+    }
+    return null
   }
 
   /**

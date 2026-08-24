@@ -11,6 +11,8 @@ const manifest = JSON.parse(
   )
 )
 
+const MATCH_PATTERN_RE = /^(\*|https?):\/\/(\*|(\*\.)?[A-Za-z0-9.-]+)(\/[^\s]*)?$/
+
 /** Motrix ActivationDispatcher matcher (path `*` = one segment). */
 function pl(patterns, url) {
   if (patterns.length === 0) return false
@@ -87,5 +89,35 @@ test('manifest hostPermissions pass both Motrix matchers for telegram message ur
   for (const url of TASK_URLS) {
     assert.equal(pl(patterns, url), true, `pl() must admit ${url}`)
     assert.equal(eligible(patterns, url), true, `Jb() must admit ${url}`)
+  }
+})
+
+test('manifest hostPermissions admit the local bridge port', () => {
+  const patterns = manifest.hostPermissions
+  for (const url of [
+    'http://127.0.0.1:16808/status',
+    'http://127.0.0.1:16808/resolve',
+  ]) {
+    assert.equal(eligible(patterns, url), true, `Jb() must admit ${url}`)
+  }
+})
+
+test('manifest hostPermissions satisfy the official match-pattern schema', () => {
+  for (const pattern of manifest.hostPermissions) {
+    assert.match(pattern, MATCH_PATTERN_RE)
+  }
+})
+
+test('bridge permission does not admit non-Telegram HTTPS urls', () => {
+  assert.equal(eligible(manifest.hostPermissions, 'https://example.com/file.zip'), false)
+})
+
+test('bridge permission does not admit unrelated HTTP paths', () => {
+  for (const url of [
+    'http://evil.example/file.zip',
+    'http://127.0.0.1:16808/file.mp4',
+    'http://localhost:16808/other',
+  ]) {
+    assert.equal(eligible(manifest.hostPermissions, url), false)
   }
 })

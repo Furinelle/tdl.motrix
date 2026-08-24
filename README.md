@@ -25,9 +25,12 @@ chmod +x scripts/install-macos.sh
 
 然后打开 Motrix → 插件 → **添加插件**，选：
 
-`plugin/dist/tdl.motrix-0.1.6.moext`
+`plugin/dist/tdl.motrix-0.1.7.moext`
 
 （也可从 GitHub Releases 下载已打包的 `.moext`。）
+
+通过 tdl 解析的文件默认保存到 `~/Downloads/Motrix/tg`，并保留 Telegram
+媒体返回的原始文件名和扩展名。
 
 授权 `http` 后启用。
 
