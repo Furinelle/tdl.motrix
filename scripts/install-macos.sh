@@ -17,4 +17,4 @@ sleep 0.4
 curl -sf "http://127.0.0.1:16808/status"
 echo
 echo "tdl.motrix bridge installed and running"
-echo "Install the plugin in Motrix: 插件 → 添加插件 → $ROOT/plugin/dist/tdl.motrix-0.1.5.moext"
+echo "Install the plugin in Motrix: 插件 → 添加插件 → $ROOT/plugin/dist/tdl.motrix-0.1.6.moext"

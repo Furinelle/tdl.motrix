@@ -2,22 +2,18 @@ import { hooks, http, log } from 'motrix:plugin-api'
 
 const BRIDGE = 'http://127.0.0.1:16808'
 const MESSAGE_LINK =
-  /^(?:https?:\/\/)?(?:www\.)?(?:t\.me|telegram\.me|telegram\.dog)\/.+/i
+  /^(?:https?:\/\/)?(?:www\.)?(?:t\.me|telegram\.me|telegram\.dog)\/([^?#]*)(?:[?#].*)?$/i
 
 function isTelegramMessageUrl(raw: string): boolean {
-  if (!MESSAGE_LINK.test(raw.trim())) return false
-  try {
-    const u = new URL(raw.includes('://') ? raw : `https://${raw}`)
-    const parts = u.pathname.replace(/^\/+|\/+$/g, '').split('/')
-    if (parts[0] === 'c') {
-      return parts.length >= 3 && parts.slice(2).some((p) => /^\d+$/.test(p))
-    }
-    const blocked = new Set(['joinchat', 'addstickers', 'proxy', 'socks', 'iv', 's'])
-    if (blocked.has(parts[0].toLowerCase())) return false
-    return parts.slice(1).some((p) => /^\d+$/.test(p))
-  } catch {
-    return false
+  const match = MESSAGE_LINK.exec(raw.trim())
+  if (!match) return false
+  const parts = match[1].replace(/^\/+|\/+$/g, '').split('/')
+  if (parts[0] === 'c') {
+    return parts.length >= 3 && parts.slice(2).some((p) => /^\d+$/.test(p))
   }
+  const blocked = new Set(['joinchat', 'addstickers', 'proxy', 'socks', 'iv', 's'])
+  if (blocked.has(parts[0].toLowerCase())) return false
+  return parts.slice(1).some((p) => /^\d+$/.test(p))
 }
 
 function firstTelegramUri(uris: readonly string[]): string | null {
