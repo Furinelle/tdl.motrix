@@ -32,6 +32,8 @@ chmod +x scripts/install-macos.sh
 通过 tdl 解析的文件默认保存到 `~/Downloads/Motrix/tg`，并保留 Telegram
 媒体返回的原始文件名和扩展名。
 
+不同的 Telegram 消息可以同时下载：每条任务会把已登录的 tdl Bolt 会话复制到临时目录再启动 `--serve`，互不抢同一把数据库锁。任务结束后只删除该临时副本，不会改动 `~/.tdl` 里的原会话。同一条链接若仍在下载，会复用已有任务。
+
 授权 `http` 后启用。
 
 检查桥：

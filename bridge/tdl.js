@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from 'node:child_process'
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { chmodSync, copyFileSync, existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { groupedUrlsFromExport, parseMessageRef } from './group.js'
@@ -25,13 +25,75 @@ export function findTdl() {
   return 'tdl'
 }
 
-export function sessionLooksPresent() {
+export function defaultBoltSessionPath() {
+  return join(homedir(), '.tdl', 'data', 'default')
+}
+
+export function sessionLooksPresent(sessionStorePath = defaultBoltSessionPath()) {
   const root = join(homedir(), '.tdl')
   return (
-    existsSync(join(root, 'data', 'default')) ||
+    existsSync(sessionStorePath) ||
     existsSync(join(root, 'data.kv')) ||
     existsSync(join(root, 'data'))
   )
+}
+
+export function isolateBoltSession(sourcePath) {
+  if (!sourcePath || !existsSync(sourcePath)) {
+    throw Object.assign(new Error('tdl 未登录，请在终端执行 tdl login 后重试'), {
+      code: 'not_logged_in',
+    })
+  }
+  const dir = mkdtempSync(join(tmpdir(), 'tdl-session-'))
+  try {
+    chmodSync(dir, 0o700)
+    const dest = join(dir, 'default')
+    copyFileSync(sourcePath, dest)
+    chmodSync(dest, 0o600)
+    return dir
+  } catch (err) {
+    rmSync(dir, { recursive: true, force: true })
+    throw err
+  }
+}
+
+function boltStorageArgs(sessionDir) {
+  return ['--storage', `type=bolt,path=${sessionDir}`]
+}
+
+function removeSessionDir(sessionDir) {
+  if (!sessionDir) return
+  try {
+    rmSync(sessionDir, { recursive: true, force: true })
+  } catch {
+    /* already gone */
+  }
+}
+
+function procHasExited(proc) {
+  if (!proc) return true
+  return proc.exitCode !== null || proc.signalCode != null
+}
+
+function removeSessionDirWhenExited(proc, sessionDir) {
+  if (!sessionDir) return
+  if (procHasExited(proc)) {
+    removeSessionDir(sessionDir)
+    return
+  }
+  proc.once('exit', () => removeSessionDir(sessionDir))
+}
+
+function waitForProcExit(proc, ms = 2000) {
+  if (procHasExited(proc)) return Promise.resolve()
+  return new Promise((resolve) => {
+    const timeout = setTimeout(resolve, ms)
+    timeout.unref?.()
+    proc.once('exit', () => {
+      clearTimeout(timeout)
+      resolve()
+    })
+  })
 }
 
 export function classifyTdlError(text) {
@@ -106,14 +168,15 @@ function isSafeFilename(value) {
 
 /**
  * @typedef {{ url: string, filename: string }} ServedFile
- * @typedef {{ port: number, proc: import('node:child_process').ChildProcess, files: ServedFile[], startedAt: number, timer: NodeJS.Timeout, completedUrls?: Set<string> }} ServeSlot
+ * @typedef {{ port: number, proc: import('node:child_process').ChildProcess, files: ServedFile[], startedAt: number, timer: NodeJS.Timeout, completedUrls?: Set<string>, sessionDir?: string }} ServeSlot
  */
 
 export class TdlRunner {
-  /** @param {{ tdlBin?: string, motrixBin?: string, findTerminalTaskByUri?: (uri: string) => any }} [opts] */
+  /** @param {{ tdlBin?: string, motrixBin?: string, sessionStorePath?: string, findTerminalTaskByUri?: (uri: string) => any }} [opts] */
   constructor(opts = {}) {
     this.tdlBin = opts.tdlBin || findTdl()
     this.motrixBin = opts.motrixBin || process.env.MOTRIX_BIN || 'motrix'
+    this.sessionStorePath = opts.sessionStorePath || defaultBoltSessionPath()
     /** @type {Map<string, ServeSlot>} */
     this.serves = new Map()
     this.findTerminalTaskByUri = opts.findTerminalTaskByUri ?? findTerminalMotrixTaskByUri
@@ -183,7 +246,7 @@ export class TdlRunner {
     if (!this.tdlInstalled()) {
       return { ok: false, code: 'no_tdl', message: '未找到 tdl，请先 brew install tdl' }
     }
-    if (!sessionLooksPresent()) {
+    if (!existsSync(this.sessionStorePath) && !sessionLooksPresent()) {
       return { ok: false, code: 'not_logged_in', message: 'tdl 未登录，请在终端执行 tdl login 后重试' }
     }
 
@@ -201,6 +264,9 @@ export class TdlRunner {
     } catch (e) {
       const mapped = classifyTdlError(e instanceof Error ? e.message : e)
       if (mapped) return { ok: false, ...mapped }
+      if (e && typeof e === 'object' && 'code' in e && e.code === 'not_logged_in') {
+        return { ok: false, code: 'not_logged_in', message: 'tdl 未登录，请在终端执行 tdl login 后重试' }
+      }
       if (e && typeof e === 'object' && 'code' in e && e.code === 'timeout') {
         return { ok: false, code: 'timeout', message: 'tdl 解析超时' }
       }
@@ -215,8 +281,8 @@ export class TdlRunner {
     }
   }
 
-  /** @param {string} url */
-  #expandGroup(url) {
+  /** @param {string} url @param {string} sessionDir */
+  #expandGroup(url, sessionDir) {
     const ref = parseMessageRef(url)
     if (!ref) return [url]
     const from = Math.max(1, ref.messageId - 10)
@@ -226,6 +292,7 @@ export class TdlRunner {
     const result = spawnSync(
       this.tdlBin,
       [
+        ...boltStorageArgs(sessionDir),
         'chat',
         'export',
         '-c',
@@ -262,87 +329,123 @@ export class TdlRunner {
 
   /** @param {string} url @param {boolean} group */
   async #startServe(url, group) {
-    const urls = group ? this.#expandGroup(url) : [url]
-    const port = allocatePort()
-    const args = ['dl', '--serve', '--port', String(port), '--continue']
-    for (const item of urls) args.push('-u', item)
+    const sessionDir = isolateBoltSession(this.sessionStorePath)
+    let proc
+    let detachStartup = () => {}
+    try {
+      const urls = group ? this.#expandGroup(url, sessionDir) : [url]
+      const port = allocatePort()
+      const args = [
+        ...boltStorageArgs(sessionDir),
+        'dl',
+        '--serve',
+        '--port',
+        String(port),
+        '--continue',
+      ]
+      for (const item of urls) args.push('-u', item)
 
-    const stderrChunks = []
-    const proc = spawn(this.tdlBin, args, {
-      stdio: ['ignore', 'pipe', 'pipe'],
-      env: { ...process.env },
-    })
-    proc.stderr?.on('data', (d) => {
-      const s = String(d)
-      stderrChunks.push(s)
-      if (stderrChunks.join('').length > 8000) stderrChunks.splice(0, 1)
-    })
-    proc.stdout?.on('data', (d) => {
-      stderrChunks.push(String(d))
-    })
+      const stderrChunks = []
+      proc = spawn(this.tdlBin, args, {
+        stdio: ['ignore', 'pipe', 'pipe'],
+        env: { ...process.env },
+      })
+      proc.stderr?.on('data', (d) => {
+        const s = String(d)
+        stderrChunks.push(s)
+        if (stderrChunks.join('').length > 8000) stderrChunks.splice(0, 1)
+      })
+      proc.stdout?.on('data', (d) => {
+        stderrChunks.push(String(d))
+      })
 
-    const abort = new AbortController()
-    const timer = setTimeout(() => abort.abort(), RESOLVE_TIMEOUT_MS)
+      const abort = new AbortController()
+      const timer = setTimeout(() => abort.abort(), RESOLVE_TIMEOUT_MS)
+      timer.unref?.()
 
-    const exitError = new Promise((_, reject) => {
-      proc.once('error', (err) => {
+      const onProcError = (err) => {
         if (err && 'code' in err && err.code === 'ENOENT') {
-          reject(Object.assign(new Error('未找到 tdl，请先 brew install tdl'), { code: 'no_tdl' }))
+          rejectStartup(Object.assign(new Error('未找到 tdl，请先 brew install tdl'), { code: 'no_tdl' }))
           return
         }
-        reject(err)
-      })
-      proc.once('exit', (code) => {
+        rejectStartup(err)
+      }
+      const onProcExit = (code) => {
         const text = stderrChunks.join('')
         const mapped = classifyTdlError(text)
         if (mapped) {
-          reject(Object.assign(new Error(mapped.message), { code: mapped.code }))
+          rejectStartup(Object.assign(new Error(mapped.message), { code: mapped.code }))
           return
         }
-        reject(
+        rejectStartup(
           Object.assign(new Error(text.trim() || `tdl exited ${code}`), {
             code: 'error',
           })
         )
+      }
+      let rejectStartup = () => {}
+      const exitError = new Promise((_, reject) => {
+        rejectStartup = reject
+        proc.once('error', onProcError)
+        proc.once('exit', onProcExit)
       })
-    })
+      detachStartup = () => {
+        proc.removeListener('error', onProcError)
+        proc.removeListener('exit', onProcExit)
+      }
 
-    try {
-      const html = await Promise.race([
-        waitForIndex(port, RESOLVE_TIMEOUT_MS, abort.signal),
-        exitError,
-      ])
-      const listed = parseServeIndex(html, port)
-      if (listed.length === 0) {
-        proc.kill('SIGTERM')
-        throw Object.assign(new Error('这条 Telegram 消息没有可下载的文件'), {
-          code: 'no_media',
+      const indexReady = waitForIndex(port, RESOLVE_TIMEOUT_MS, abort.signal)
+      indexReady.catch(() => {})
+      try {
+        const html = await Promise.race([indexReady, exitError])
+        detachStartup()
+        const listed = parseServeIndex(html, port)
+        if (listed.length === 0) {
+          throw Object.assign(new Error('这条 Telegram 消息没有可下载的文件'), {
+            code: 'no_media',
+          })
+        }
+        const files = []
+        for (const item of listed) {
+          files.push({ url: item.url, filename: await filenameFor(item.url) })
+        }
+        const ttl = setTimeout(() => {
+          this.#stop(url).catch(() => {})
+        }, SERVE_TTL_MS)
+        const slot = {
+          port,
+          proc,
+          files,
+          startedAt: Date.now(),
+          timer: ttl,
+          completedUrls: new Set(),
+          sessionDir,
+        }
+        this.serves.set(url, slot)
+        proc.once('exit', () => {
+          const cur = this.serves.get(url)
+          if (cur?.proc !== proc) return
+          clearTimeout(cur.timer)
+          this.serves.delete(url)
+          removeSessionDir(cur.sessionDir)
         })
+        return slot
+      } finally {
+        abort.abort()
+        clearTimeout(timer)
       }
-      const files = []
-      for (const item of listed) {
-        files.push({ url: item.url, filename: await filenameFor(item.url) })
-      }
-      const ttl = setTimeout(() => this.#stop(url), SERVE_TTL_MS)
-      const slot = {
-        port,
-        proc,
-        files,
-        startedAt: Date.now(),
-        timer: ttl,
-        completedUrls: new Set(),
-      }
-      this.serves.set(url, slot)
-      proc.once('exit', () => {
-        const cur = this.serves.get(url)
-        if (cur?.proc === proc) this.serves.delete(url)
-      })
-      return slot
     } catch (e) {
-      proc.kill('SIGTERM')
+      detachStartup()
+      if (proc) {
+        try {
+          proc.kill('SIGTERM')
+        } catch {
+          /* already gone */
+        }
+        await waitForProcExit(proc)
+      }
+      removeSessionDirWhenExited(proc, sessionDir)
       throw e
-    } finally {
-      clearTimeout(timer)
     }
   }
 
@@ -371,7 +474,7 @@ export class TdlRunner {
     this.serves.delete(url)
 
     const exited = new Promise((resolve) => {
-      if (slot.proc.exitCode !== null && slot.proc.exitCode !== undefined) {
+      if (procHasExited(slot.proc)) {
         resolve()
         return
       }
@@ -382,14 +485,17 @@ export class TdlRunner {
         resolve()
       })
     })
-    this.pendingStops.add(exited)
-    exited.finally(() => this.pendingStops.delete(exited))
+    const stopped = exited.then(() => {
+      removeSessionDirWhenExited(slot.proc, slot.sessionDir)
+    })
+    this.pendingStops.add(stopped)
+    stopped.finally(() => this.pendingStops.delete(stopped))
     try {
       slot.proc.kill('SIGTERM')
     } catch {
       /* already gone */
     }
     console.log(JSON.stringify({ msg: 'serve_stopped', url, files: slot.files.length }))
-    return exited
+    return stopped
   }
 }
