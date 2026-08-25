@@ -123,6 +123,7 @@ function extractServedJobs(statuses, lookupFilename, targetDir) {
  * @param {{
  *   resolve: (req: { url: string, group?: boolean }) => Promise<any>,
  *   lookupServedFilename?: (url: string) => string | null,
+ *   markServedComplete?: (url: string) => Promise<void>,
  * }} runner
  * @param {{
  *   intervalMs?: number,
@@ -287,6 +288,13 @@ export function startAria2Watch(runner, opts = {}) {
           taskId: task.id,
           status: task.status,
         }))
+        if (typeof runner.markServedComplete === 'function') {
+          for (const file of job.files || []) {
+            for (const entry of file.uris || []) {
+              await runner.markServedComplete(String(entry?.uri || ''))
+            }
+          }
+        }
       } catch {
         /* Motrix may still be finalizing; retry on the next tick. */
       }

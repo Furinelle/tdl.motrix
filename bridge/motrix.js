@@ -50,6 +50,32 @@ export function findTerminalMotrixTask(gid, opts = {}) {
 }
 
 /**
+ * @param {string} uri
+ * @param {{ dbPath?: string }} [opts]
+ */
+export function findTerminalMotrixTaskByUri(uri, opts = {}) {
+  if (typeof uri !== 'string' || !uri) return null
+  const db = new DatabaseSync(opts.dbPath ?? MOTRIX_DB, { readOnly: true })
+  try {
+    const row = db.prepare(`
+      SELECT tasks.motrix_id, tasks.agg_status, tasks.task_type
+      FROM tasks
+      JOIN task_instances ON task_instances.motrix_id = tasks.motrix_id
+      WHERE EXISTS (
+        SELECT 1 FROM json_each(task_instances.uris) WHERE json_each.value = ?
+      )
+        AND tasks.agg_status IN ('completed', 'error')
+        AND tasks.task_type IN ('http', 'ftp', 'metalink')
+      LIMIT 1
+    `).get(uri)
+    if (!row) return null
+    return { id: row.motrix_id, status: row.agg_status, type: row.task_type }
+  } finally {
+    db.close()
+  }
+}
+
+/**
  * @param {string} gid
  * @param {{
  *   dbPath?: string,

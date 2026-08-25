@@ -112,6 +112,7 @@ test('TdlRunner looks up safe filenames only for exact served URLs', () => {
 
 test('startAria2Watch evicts only persisted terminal direct-download engine results', async () => {
   const calls = []
+  const completedUrls = []
   const terminal = {
     gid: gids.complete,
     dir: '/downloads',
@@ -132,6 +133,9 @@ test('startAria2Watch evicts only persisted terminal direct-download engine resu
     async resolve() {
       assert.fail('ordinary downloads must not be resolved as Telegram links')
     },
+    async markServedComplete(url) {
+      completedUrls.push(url)
+    },
   }, {
     intervalMs: 1000,
     loadRpc: () => rpcConf,
@@ -150,6 +154,7 @@ test('startAria2Watch evicts only persisted terminal direct-download engine resu
       [{ method: 'aria2.removeDownloadResult', extra: [gids.complete] }]
     )
     assert.equal(count(calls, 'aria2.forceRemove'), 0)
+    assert.deepEqual(completedUrls, ['https://example.com/video.mp4'])
   } finally {
     stop()
   }

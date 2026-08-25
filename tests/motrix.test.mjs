@@ -7,10 +7,12 @@ import { test } from 'node:test'
 import {
   findMotrixTaskId,
   findTerminalMotrixTask,
+  findTerminalMotrixTaskByUri,
   removeMotrixTask,
 } from '../bridge/motrix.js'
 
 const gid = '0123456789abcdef'
+const servedUri = 'http://127.0.0.1:18773/3730750297/1302'
 
 async function withMotrixFiles(run) {
   const dir = mkdtempSync(join(tmpdir(), 'tdl-motrix-test-'))
@@ -22,15 +24,19 @@ async function withMotrixFiles(run) {
     agg_status TEXT NOT NULL,
     task_type TEXT NOT NULL
   )`)
-  db.exec('CREATE TABLE task_instances (motrix_id TEXT NOT NULL, gid TEXT UNIQUE)')
+  db.exec(`CREATE TABLE task_instances (
+    motrix_id TEXT NOT NULL,
+    gid TEXT UNIQUE,
+    uris TEXT NOT NULL DEFAULT '[]'
+  )`)
   db.prepare('INSERT INTO tasks (motrix_id, agg_status, task_type) VALUES (?, ?, ?)')
     .run('task-exact', 'completed', 'http')
   db.prepare('INSERT INTO tasks (motrix_id, agg_status, task_type) VALUES (?, ?, ?)')
     .run('task-neighbour', 'downloading', 'http')
-  db.prepare('INSERT INTO task_instances (motrix_id, gid) VALUES (?, ?)')
-    .run('task-exact', gid)
-  db.prepare('INSERT INTO task_instances (motrix_id, gid) VALUES (?, ?)')
-    .run('task-neighbour', '0123456789abcdee')
+  db.prepare('INSERT INTO task_instances (motrix_id, gid, uris) VALUES (?, ?, ?)')
+    .run('task-exact', gid, JSON.stringify([servedUri]))
+  db.prepare('INSERT INTO task_instances (motrix_id, gid, uris) VALUES (?, ?, ?)')
+    .run('task-neighbour', '0123456789abcdee', JSON.stringify([`${servedUri}3`]))
   db.close()
   try {
     return await run({ dbPath, endpointPath })
@@ -64,6 +70,19 @@ test('findTerminalMotrixTask returns only persisted terminal direct downloads', 
       .run('bt', 'task-exact')
     db.close()
     assert.equal(findTerminalMotrixTask(gid, { dbPath }), null)
+  })
+})
+
+test('findTerminalMotrixTaskByUri requires an exact completed served URL', async () => {
+  await withMotrixFiles(({ dbPath }) => {
+    assert.deepEqual(findTerminalMotrixTaskByUri(servedUri, { dbPath }), {
+      id: 'task-exact',
+      status: 'completed',
+      type: 'http',
+    })
+    assert.equal(findTerminalMotrixTaskByUri(`${servedUri}3`, { dbPath }), null)
+    assert.equal(findTerminalMotrixTaskByUri(`${servedUri}?extra=1`, { dbPath }), null)
+    assert.equal(findTerminalMotrixTaskByUri('', { dbPath }), null)
   })
 })
 

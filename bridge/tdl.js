@@ -3,6 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { groupedUrlsFromExport, parseMessageRef } from './group.js'
+import { findTerminalMotrixTaskByUri } from './motrix.js'
 import { filenameFromContentDisposition, parseServeIndex } from './parseIndex.js'
 import { tdlSaveDir } from './paths.js'
 
@@ -46,6 +47,9 @@ export function classifyTdlError(text) {
   }
   if (s.includes('flood') || s.includes('wait of')) {
     return { code: 'flood', message: 'Telegram 限流，请稍后重试' }
+  }
+  if (s.includes('database is used by another process')) {
+    return { code: 'busy', message: 'tdl 正在处理其他 Telegram 下载，请完成后重试' }
   }
   if (s.includes('not a media') || s.includes('no media') || s.includes('message is not a media')) {
     return { code: 'no_media', message: '这条 Telegram 消息没有可下载的文件' }
@@ -102,16 +106,19 @@ function isSafeFilename(value) {
 
 /**
  * @typedef {{ url: string, filename: string }} ServedFile
- * @typedef {{ port: number, proc: import('node:child_process').ChildProcess, files: ServedFile[], startedAt: number, timer: NodeJS.Timeout }} ServeSlot
+ * @typedef {{ port: number, proc: import('node:child_process').ChildProcess, files: ServedFile[], startedAt: number, timer: NodeJS.Timeout, completedUrls?: Set<string> }} ServeSlot
  */
 
 export class TdlRunner {
-  /** @param {{ tdlBin?: string, motrixBin?: string }} [opts] */
+  /** @param {{ tdlBin?: string, motrixBin?: string, findTerminalTaskByUri?: (uri: string) => any }} [opts] */
   constructor(opts = {}) {
     this.tdlBin = opts.tdlBin || findTdl()
     this.motrixBin = opts.motrixBin || process.env.MOTRIX_BIN || 'motrix'
     /** @type {Map<string, ServeSlot>} */
     this.serves = new Map()
+    this.findTerminalTaskByUri = opts.findTerminalTaskByUri ?? findTerminalMotrixTaskByUri
+    /** @type {Set<Promise<void>>} */
+    this.pendingStops = new Set()
   }
 
   tdlInstalled() {
@@ -141,6 +148,34 @@ export class TdlRunner {
     return null
   }
 
+  /** @param {string} servedUrl */
+  async markServedComplete(servedUrl) {
+    for (const [sourceUrl, slot] of this.serves) {
+      if (!slot.files.some((file) => file.url === servedUrl)) continue
+      slot.completedUrls ??= new Set()
+      slot.completedUrls.add(servedUrl)
+      if (slot.files.every((file) => slot.completedUrls.has(file.url))) {
+        await this.#stop(sourceUrl)
+      }
+    }
+  }
+
+  async reapCompletedServes() {
+    for (const [sourceUrl, slot] of this.serves) {
+      if (!slot.files.length) continue
+      let completed = false
+      try {
+        completed = slot.files.every((file) =>
+          slot.completedUrls?.has(file.url) || this.findTerminalTaskByUri(file.url)
+        )
+      } catch {
+        continue
+      }
+      if (completed) await this.#stop(sourceUrl)
+    }
+    await Promise.all(this.pendingStops)
+  }
+
   /**
    * @param {{ url: string, saveDir?: string, group?: boolean }} req
    */
@@ -152,6 +187,7 @@ export class TdlRunner {
       return { ok: false, code: 'not_logged_in', message: 'tdl 未登录，请在终端执行 tdl login 后重试' }
     }
 
+    await this.reapCompletedServes()
     const existing = this.serves.get(req.url)
     if (existing?.files?.length) {
       this.#addExtras(existing.files, req.saveDir)
@@ -288,7 +324,14 @@ export class TdlRunner {
         files.push({ url: item.url, filename: await filenameFor(item.url) })
       }
       const ttl = setTimeout(() => this.#stop(url), SERVE_TTL_MS)
-      const slot = { port, proc, files, startedAt: Date.now(), timer: ttl }
+      const slot = {
+        port,
+        proc,
+        files,
+        startedAt: Date.now(),
+        timer: ttl,
+        completedUrls: new Set(),
+      }
       this.serves.set(url, slot)
       proc.once('exit', () => {
         const cur = this.serves.get(url)
@@ -323,13 +366,30 @@ export class TdlRunner {
   /** @param {string} url */
   #stop(url) {
     const slot = this.serves.get(url)
-    if (!slot) return
+    if (!slot) return Promise.resolve()
     clearTimeout(slot.timer)
+    this.serves.delete(url)
+
+    const exited = new Promise((resolve) => {
+      if (slot.proc.exitCode !== null && slot.proc.exitCode !== undefined) {
+        resolve()
+        return
+      }
+      const timeout = setTimeout(resolve, 2000)
+      timeout.unref?.()
+      slot.proc.once('exit', () => {
+        clearTimeout(timeout)
+        resolve()
+      })
+    })
+    this.pendingStops.add(exited)
+    exited.finally(() => this.pendingStops.delete(exited))
     try {
       slot.proc.kill('SIGTERM')
     } catch {
       /* already gone */
     }
-    this.serves.delete(url)
+    console.log(JSON.stringify({ msg: 'serve_stopped', url, files: slot.files.length }))
+    return exited
   }
 }
