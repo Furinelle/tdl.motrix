@@ -110,6 +110,51 @@ test('TdlRunner looks up safe filenames only for exact served URLs', () => {
   assert.equal(runner.lookupServedFilename(`${servedUrl}/unsafe`), null)
 })
 
+test('startAria2Watch evicts only persisted terminal direct-download engine results', async () => {
+  const calls = []
+  const terminal = {
+    gid: gids.complete,
+    dir: '/downloads',
+    status: 'complete',
+    files: [{ path: '/downloads/video.mp4', uris: [{ uri: 'https://example.com/video.mp4' }] }],
+  }
+  const active = { ...terminal, gid: gids.other, status: 'active' }
+  class MockWebSocket {
+    close() {}
+  }
+  const rpc = async (_conf, method, extra) => {
+    calls.push({ method, extra })
+    if (method === 'aria2.tellActive') return [active]
+    if (method === 'aria2.tellStopped') return [terminal, terminal, { ...terminal, gid: gids.other }]
+    return []
+  }
+  const stop = startAria2Watch({
+    async resolve() {
+      assert.fail('ordinary downloads must not be resolved as Telegram links')
+    },
+  }, {
+    intervalMs: 1000,
+    loadRpc: () => rpcConf,
+    rpc,
+    findTerminalMotrixTask: (gid) => gid === gids.complete
+      ? { id: 'finished-task', status: 'completed', type: 'http' }
+      : null,
+    saveDir: () => '/downloads',
+    WebSocket: MockWebSocket,
+  })
+
+  try {
+    await waitFor(() => count(calls, 'aria2.saveSession') === 1)
+    assert.deepEqual(
+      calls.filter((call) => call.method === 'aria2.removeDownloadResult'),
+      [{ method: 'aria2.removeDownloadResult', extra: [gids.complete] }]
+    )
+    assert.equal(count(calls, 'aria2.forceRemove'), 0)
+  } finally {
+    stop()
+  }
+})
+
 test('startAria2Watch rebuilds known served URLs with the tdl filename once', async () => {
   const calls = []
   const motrixRemovals = []

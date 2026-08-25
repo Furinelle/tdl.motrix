@@ -27,6 +27,30 @@ export function findMotrixTaskId(gid, opts = {}) {
 
 /**
  * @param {string} gid
+ * @param {{ dbPath?: string }} [opts]
+ */
+export function findTerminalMotrixTask(gid, opts = {}) {
+  if (!isAria2Gid(gid)) return null
+  const db = new DatabaseSync(opts.dbPath ?? MOTRIX_DB, { readOnly: true })
+  try {
+    const row = db.prepare(`
+      SELECT tasks.motrix_id, tasks.agg_status, tasks.task_type
+      FROM tasks
+      JOIN task_instances ON task_instances.motrix_id = tasks.motrix_id
+      WHERE task_instances.gid = ?
+        AND tasks.agg_status IN ('completed', 'error')
+        AND tasks.task_type IN ('http', 'ftp', 'metalink')
+      LIMIT 1
+    `).get(gid)
+    if (!row) return null
+    return { id: row.motrix_id, status: row.agg_status, type: row.task_type }
+  } finally {
+    db.close()
+  }
+}
+
+/**
+ * @param {string} gid
  * @param {{
  *   dbPath?: string,
  *   endpointPath?: string,

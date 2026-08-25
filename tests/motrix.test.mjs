@@ -6,6 +6,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { test } from 'node:test'
 import {
   findMotrixTaskId,
+  findTerminalMotrixTask,
   removeMotrixTask,
 } from '../bridge/motrix.js'
 
@@ -16,7 +17,16 @@ async function withMotrixFiles(run) {
   const dbPath = join(dir, 'motrix.db')
   const endpointPath = join(dir, 'endpoint.json')
   const db = new DatabaseSync(dbPath)
+  db.exec(`CREATE TABLE tasks (
+    motrix_id TEXT PRIMARY KEY,
+    agg_status TEXT NOT NULL,
+    task_type TEXT NOT NULL
+  )`)
   db.exec('CREATE TABLE task_instances (motrix_id TEXT NOT NULL, gid TEXT UNIQUE)')
+  db.prepare('INSERT INTO tasks (motrix_id, agg_status, task_type) VALUES (?, ?, ?)')
+    .run('task-exact', 'completed', 'http')
+  db.prepare('INSERT INTO tasks (motrix_id, agg_status, task_type) VALUES (?, ?, ?)')
+    .run('task-neighbour', 'downloading', 'http')
   db.prepare('INSERT INTO task_instances (motrix_id, gid) VALUES (?, ?)')
     .run('task-exact', gid)
   db.prepare('INSERT INTO task_instances (motrix_id, gid) VALUES (?, ?)')
@@ -36,6 +46,24 @@ test('findMotrixTaskId requires an exact 16-digit aria2 gid', async () => {
     assert.equal(findMotrixTaskId(gid.toUpperCase(), { dbPath }), null)
     assert.equal(findMotrixTaskId('0123456789abcde', { dbPath }), null)
     assert.equal(findMotrixTaskId(`${gid}%`, { dbPath }), null)
+  })
+})
+
+test('findTerminalMotrixTask returns only persisted terminal direct downloads', async () => {
+  await withMotrixFiles(({ dbPath }) => {
+    assert.deepEqual(findTerminalMotrixTask(gid, { dbPath }), {
+      id: 'task-exact',
+      status: 'completed',
+      type: 'http',
+    })
+    assert.equal(findTerminalMotrixTask('0123456789abcdee', { dbPath }), null)
+    assert.equal(findTerminalMotrixTask(gid.toUpperCase(), { dbPath }), null)
+
+    const db = new DatabaseSync(dbPath)
+    db.prepare('UPDATE tasks SET task_type = ? WHERE motrix_id = ?')
+      .run('bt', 'task-exact')
+    db.close()
+    assert.equal(findTerminalMotrixTask(gid, { dbPath }), null)
   })
 })
 

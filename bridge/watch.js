@@ -3,7 +3,7 @@ import { homedir } from 'node:os'
 import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { isAria2Gid } from './aria2.js'
 import { parseTelegramMessageUrl } from './links.js'
-import { removeMotrixTask } from './motrix.js'
+import { findTerminalMotrixTask, removeMotrixTask } from './motrix.js'
 import { tdlSaveDir } from './paths.js'
 
 const SETTINGS = join(homedir(), 'Library/Application Support/Motrix/settings.json')
@@ -130,6 +130,7 @@ function extractServedJobs(statuses, lookupFilename, targetDir) {
  *   loadRpc?: () => { port: number, secret: string } | null,
  *   rpc?: (rpcConf: any, method: string, extra?: any[]) => Promise<any>,
  *   removeMotrixTask?: (gid: string) => Promise<boolean>,
+ *   findTerminalMotrixTask?: (gid: string) => { id: string, status: string, type: string } | null,
  *   saveDir?: () => string,
  *   WebSocket?: typeof globalThis.WebSocket,
  * }} [opts]
@@ -140,6 +141,7 @@ export function startAria2Watch(runner, opts = {}) {
   const loadRpcConf = opts.loadRpc ?? loadRpc
   const rpcCall = opts.rpc ?? rpc
   const removeTask = opts.removeMotrixTask ?? removeMotrixTask
+  const findTerminalTask = opts.findTerminalMotrixTask ?? findTerminalMotrixTask
   const saveDir = opts.saveDir ?? tdlSaveDir
   const WebSocketImpl = opts.WebSocket ?? globalThis.WebSocket
   const keys = ['gid', 'dir', 'files', 'status']
@@ -256,8 +258,47 @@ export function startAria2Watch(runner, opts = {}) {
     return pending
   }
 
-  function enqueueIntercept(statuses, rpcConf) {
-    return enqueueWork(() => intercept(statuses, rpcConf))
+  async function evictTerminalResults(stoppedJobs, liveJobs, rpcConf) {
+    const liveGids = new Set(liveJobs.map((job) => job?.gid))
+    const removedGids = new Set()
+    for (const job of stoppedJobs) {
+      const gid = job?.gid
+      if (
+        !isAria2Gid(gid) ||
+        !['error', 'complete'].includes(job?.status) ||
+        liveGids.has(gid) ||
+        removedGids.has(gid)
+      ) continue
+
+      let task
+      try {
+        task = findTerminalTask(gid)
+      } catch {
+        continue
+      }
+      if (!task) continue
+
+      try {
+        await rpcCall(rpcConf, 'aria2.removeDownloadResult', [gid])
+        removedGids.add(gid)
+        console.log(JSON.stringify({
+          msg: 'terminal_engine_evicted',
+          gid,
+          taskId: task.id,
+          status: task.status,
+        }))
+      } catch {
+        /* Motrix may still be finalizing; retry on the next tick. */
+      }
+    }
+
+    if (removedGids.size > 0) {
+      try {
+        await rpcCall(rpcConf, 'aria2.saveSession')
+      } catch {
+        /* aria2 will retry its regular session save. */
+      }
+    }
   }
 
   async function tick() {
@@ -276,16 +317,14 @@ export function startAria2Watch(runner, opts = {}) {
         rpcCall(rpcConf, 'aria2.tellWaiting', [0, 50, keys]),
         rpcCall(rpcConf, 'aria2.tellStopped', [-1, 50, keys]),
       ])
-      await enqueueIntercept(
-        [
-          ...(active || []),
-          ...(waiting || []),
-          ...(stoppedJobs || []).filter((status) =>
-            ['error', 'complete'].includes(status?.status)
-          ),
-        ],
-        rpcConf
+      const liveJobs = [...(active || []), ...(waiting || [])]
+      const terminalJobs = (stoppedJobs || []).filter((status) =>
+        ['error', 'complete'].includes(status?.status)
       )
+      await enqueueWork(async () => {
+        await intercept([...liveJobs, ...terminalJobs], rpcConf)
+        await evictTerminalResults(terminalJobs, liveJobs, rpcConf)
+      })
     } catch {
       /* aria2 not up yet */
     } finally {
